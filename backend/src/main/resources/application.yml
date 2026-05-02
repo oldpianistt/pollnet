@@ -1,0 +1,135 @@
+spring:
+  application:
+    name: pollnet-backend
+  servlet:
+    multipart:
+      max-file-size:    8MB
+      max-request-size: 8MB
+  mail:
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${SMTP_AUTH:true}
+      mail.smtp.starttls.enable: ${SMTP_STARTTLS:true}
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:55432/pollnet}
+    username: ${SPRING_DATASOURCE_USERNAME:pollnet}
+    password: ${SPRING_DATASOURCE_PASSWORD:pollnet}
+    hikari:
+      maximum-pool-size: 10
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: false
+        jdbc:
+          time_zone: UTC
+    open-in-view: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      timeout: 2s
+
+server:
+  port: ${POLLNET_SERVER_PORT:8090}
+  error:
+    include-message: always
+    include-binding-errors: always
+
+pollnet:
+  jwt:
+    secret: ${POLLNET_JWT_SECRET:dev-only-change-me-in-prod-this-must-be-at-least-32-bytes-long}
+    access-ttl-minutes: ${POLLNET_JWT_ACCESS_TTL_MINUTES:15}
+    refresh-ttl-days: ${POLLNET_JWT_REFRESH_TTL_DAYS:30}
+    issuer: pollnet
+  invite:
+    quota-monthly: 10
+    token-ttl-days: 7
+  mail:
+    from: ${MAIL_FROM:no-reply@pollnet.local}
+    enabled: ${MAIL_ENABLED:false}      # false → log-only sender (dev / no SMTP)
+    public-base-url: ${PUBLIC_BASE_URL:http://localhost:5173}
+  cors:
+    # Comma-separated list. In prod set to your real frontend origin(s) only.
+    # Empty / unset → falls back to localhost:* for development.
+    allowed-origin-patterns: ${POLLNET_CORS_ORIGINS:}
+  media:
+    storage-dir:          ${POLLNET_MEDIA_DIR:./media}
+    public-base-path:     ${POLLNET_MEDIA_PUBLIC:/media}
+    max-avatar-bytes:     2097152   # 2 MB
+    max-attachment-bytes: 8388608   # 8 MB
+  messaging:
+    # Server-side encryption key for messages-at-rest (NOT E2EE).
+    # Must be at least 32 bytes; rotate via the runbook if compromised.
+    secret: ${POLLNET_MESSAGING_SECRET:dev-only-change-me-must-be-at-least-32-bytes-long-in-prod}
+  email-verification:
+    token-ttl-hours: 24
+  password-reset:
+    token-ttl-hours: 2
+  anthropic:
+    # Alice (poll-suggestion module). Empty api-key → /api/alice/suggest-poll returns 503.
+    api-key:    ${ANTHROPIC_API_KEY:}
+    model:      ${ANTHROPIC_MODEL:claude-opus-4-7}
+    max-tokens: ${ANTHROPIC_MAX_TOKENS:4000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+  health:
+    # SMTP probing requires real credentials; disable so /actuator/health
+    # doesn't go DOWN when MAIL_ENABLED=false (the default).
+    mail:
+      enabled: false
+
+sentry:
+  # When SENTRY_DSN is unset (default), the SDK is effectively disabled.
+  dsn: ${SENTRY_DSN:}
+  environment: ${SENTRY_ENVIRONMENT:${SPRING_PROFILES_ACTIVE:dev}}
+  release: ${SENTRY_RELEASE:0.1.0-SNAPSHOT}
+  send-default-pii: false
+  traces-sample-rate: ${SENTRY_TRACES_SAMPLE_RATE:0}
+  # Forward only WARN+ from logback. Lower bar for "events" so user-facing
+  # errors land in Sentry; INFO/DEBUG stays out.
+  logging:
+    minimum-event-level: WARN
+    minimum-breadcrumb-level: INFO
+  info:
+    env:
+      enabled: true
+  metrics:
+    tags:
+      application: pollnet
+info:
+  app:
+    name: PollNet
+    version: 0.1.0
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+    tagsSorter: alpha
+
+logging:
+  level:
+    root: INFO
+    com.pollnet: DEBUG
+    org.springframework.security: INFO

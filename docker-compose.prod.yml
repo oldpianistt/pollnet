@@ -1,0 +1,88 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pollnet-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-pollnet}
+      POSTGRES_USER: ${POSTGRES_USER:-pollnet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pollnet} -d ${POSTGRES_DB:-pollnet}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # No host port — backend talks to it over the docker network.
+
+  redis:
+    image: redis:7-alpine
+    container_name: pollnet-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pollnet-backend
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-pollnet}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-pollnet}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      POLLNET_JWT_SECRET: ${POLLNET_JWT_SECRET:?POLLNET_JWT_SECRET is required (>= 32 bytes)}
+      POLLNET_JWT_ACCESS_TTL_MINUTES: ${POLLNET_JWT_ACCESS_TTL_MINUTES:-15}
+      POLLNET_JWT_REFRESH_TTL_DAYS: ${POLLNET_JWT_REFRESH_TTL_DAYS:-30}
+      POLLNET_SERVER_PORT: 8080
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      MAIL_ENABLED:    ${MAIL_ENABLED:-false}
+      MAIL_FROM:       ${MAIL_FROM:-no-reply@pollnet.local}
+      SMTP_HOST:       ${SMTP_HOST:-}
+      SMTP_PORT:       ${SMTP_PORT:-587}
+      SMTP_USERNAME:   ${SMTP_USERNAME:-}
+      SMTP_PASSWORD:   ${SMTP_PASSWORD:-}
+      SMTP_AUTH:       ${SMTP_AUTH:-true}
+      SMTP_STARTTLS:   ${SMTP_STARTTLS:-true}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost}
+      POLLNET_CORS_ORIGINS: ${POLLNET_CORS_ORIGINS:-}
+      SENTRY_DSN:                ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT:        ${SENTRY_ENVIRONMENT:-prod}
+      SENTRY_RELEASE:            ${SENTRY_RELEASE:-0.1.0}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
+      JAVA_TOOL_OPTIONS: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=70.0"
+    # No host port — nginx proxies via the docker network.
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_SENTRY_DSN:                ${VITE_SENTRY_DSN:-}
+        VITE_SENTRY_ENVIRONMENT:        ${VITE_SENTRY_ENVIRONMENT:-prod}
+        VITE_SENTRY_RELEASE:            ${VITE_SENTRY_RELEASE:-0.1.0}
+        VITE_SENTRY_TRACES_SAMPLE_RATE: ${VITE_SENTRY_TRACES_SAMPLE_RATE:-0}
+        VITE_SENTRY_REPLAYS_SAMPLE_RATE: ${VITE_SENTRY_REPLAYS_SAMPLE_RATE:-0}
+    container_name: pollnet-web
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-80}:80"
+
+volumes:
+  postgres_data:
+  redis_data:

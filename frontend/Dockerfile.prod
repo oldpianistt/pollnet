@@ -1,0 +1,28 @@
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm ci || npm install
+COPY . .
+
+# Same-origin in prod: nginx proxies /api to the backend, so we ship an empty baseURL.
+ENV VITE_API_BASE_URL=""
+
+# Sentry build-time config. Defaults to empty / no-op; production overrides via
+# docker-compose build args (which forward .env values into the bundle).
+ARG VITE_SENTRY_DSN=""
+ARG VITE_SENTRY_ENVIRONMENT="prod"
+ARG VITE_SENTRY_RELEASE="0.1.0"
+ARG VITE_SENTRY_TRACES_SAMPLE_RATE="0"
+ARG VITE_SENTRY_REPLAYS_SAMPLE_RATE="0"
+ENV VITE_SENTRY_DSN=$VITE_SENTRY_DSN \
+    VITE_SENTRY_ENVIRONMENT=$VITE_SENTRY_ENVIRONMENT \
+    VITE_SENTRY_RELEASE=$VITE_SENTRY_RELEASE \
+    VITE_SENTRY_TRACES_SAMPLE_RATE=$VITE_SENTRY_TRACES_SAMPLE_RATE \
+    VITE_SENTRY_REPLAYS_SAMPLE_RATE=$VITE_SENTRY_REPLAYS_SAMPLE_RATE
+
+RUN npm run build
+
+FROM nginx:1.27-alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80

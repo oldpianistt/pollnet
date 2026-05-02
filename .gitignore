@@ -1,0 +1,44 @@
+# Java
+target/
+*.class
+*.jar
+*.war
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.project
+.classpath
+.settings/
+
+# Frontend
+node_modules/
+dist/
+.vite/
+*.local
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Per-deployment nginx config (real domain baked in)
+frontend/nginx-tls.conf
+
+# Env (.env.example is committed; .env / .env.* hold real secrets)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Docker volumes (just in case)
+postgres_data/
+redis_data/

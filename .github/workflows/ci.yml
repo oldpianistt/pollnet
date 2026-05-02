@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# Cancel in-progress runs from the same ref so a fresh push doesn't queue.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (Java 21 + Testcontainers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Compile
+        working-directory: backend
+        run: mvn -B -ntp -DskipTests compile
+
+      - name: Test (Testcontainers spins postgres + redis)
+        working-directory: backend
+        run: mvn -B -ntp test
+
+      - name: Package
+        working-directory: backend
+        run: mvn -B -ntp -DskipTests package
+
+      - name: Upload jar
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pollnet-backend-jar
+          path: backend/target/pollnet-backend-*.jar
+          retention-days: 7
+
+  frontend:
+    name: Frontend (Node 20 + Vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Test
+        working-directory: frontend
+        run: npm test
+
+      - name: Build
+        working-directory: frontend
+        env:
+          # Same-origin in production; the prod nginx proxies /api/* to the backend.
+          VITE_API_BASE_URL: ''
+        run: npm run build
+
+      - name: Upload dist
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pollnet-frontend-dist
+          path: frontend/dist
+          retention-days: 7
+
+  # Sanity-check that the docker-compose files still parse — catches bad env interpolation.
+  compose-lint:
+    name: docker compose config
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate dev compose
+        run: docker compose -f docker-compose.yml config --quiet
+      - name: Validate prod compose
+        env:
+          POSTGRES_PASSWORD: ci-test
+          POLLNET_JWT_SECRET: ci-test-secret-please-replace-this-in-real-prod-deployments
+        run: docker compose -f docker-compose.prod.yml config --quiet

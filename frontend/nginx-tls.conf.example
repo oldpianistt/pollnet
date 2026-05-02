@@ -1,0 +1,91 @@
+# PollNet — TLS-enabled nginx config.
+#
+# 1. Replace YOUR_DOMAIN_HERE with your real hostname.
+# 2. Issue certificates:
+#       sudo certbot certonly --standalone -d YOUR_DOMAIN_HERE
+#    (or use --webroot / DNS-01 for renewals while nginx is running.)
+# 3. Save as `frontend/nginx-tls.conf` (gitignored) and start the TLS stack:
+#       docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml up -d --build
+#
+# certbot renew cron (run on the host, weekly):
+#       0 3 * * 0 certbot renew --quiet --post-hook "docker exec pollnet-web nginx -s reload"
+
+# HTTP → HTTPS redirect, plus the ACME challenge path so renewals work without downtime.
+server {
+    listen 80;
+    server_name YOUR_DOMAIN_HERE;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name YOUR_DOMAIN_HERE;
+
+    ssl_certificate     /etc/letsencrypt/live/YOUR_DOMAIN_HERE/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/YOUR_DOMAIN_HERE/privkey.pem;
+
+    # Modern config (Mozilla "intermediate" baseline).
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache  shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    # HSTS — 6 months, opt in to includeSubDomains/preload only after you're confident.
+    add_header Strict-Transport-Security "max-age=15552000" always;
+    add_header X-Content-Type-Options    "nosniff" always;
+    add_header Referrer-Policy           "strict-origin-when-cross-origin" always;
+
+    client_max_body_size 256k;
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+    gzip_min_length 1024;
+
+    resolver 127.0.0.11 valid=30s ipv6=off;
+
+    location /api/ {
+        set $backend_upstream "http://backend:8080";
+        proxy_pass $backend_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 30s;
+    }
+
+    location /actuator/ {
+        set $actuator_upstream "http://backend:8080";
+        proxy_pass $actuator_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host            $host;
+        proxy_set_header X-Real-IP       $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        access_log off;
+    }
+
+    location / {
+        root /usr/share/nginx/html;
+        try_files $uri $uri/ /index.html;
+
+        location = /index.html {
+            add_header Cache-Control "no-store" always;
+        }
+    }
+
+    location /assets/ {
+        root /usr/share/nginx/html;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+}
